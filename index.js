@@ -316,6 +316,34 @@ async function run() {
       res.send(result);
     });
 
+    // users related api
+
+    app.get("/users", async (req, res) => {
+      const result = await UserCollections.find().toArray();
+      res.send(result);
+    });
+
+    app.get("/users/:id", async (req, res) => {});
+
+    app.get("/users/:email/role", async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const user = await UserCollections.findOne(query);
+      res.send({ role: user?.role || "user" });
+    });
+    app.patch(`/users/:id/role`, async (req, res) => {
+      const roleinfo = req.body;
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const updateDocs = {
+        $set: {
+          role: roleinfo.role,
+        },
+      };
+      const result = await UserCollections.updateOne(query, updateDocs);
+      res.send(result);
+    });
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
