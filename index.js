@@ -38,6 +38,11 @@ function generateTrackingId() {
 app.use(express.json());
 app.use(cors());
 
+let UserCollections;
+let ParcelsCollections;
+let paymentCollections;
+let ridersCollections;
+
 // verify token
 
 const verifyFBToken = async (req, res, next) => {
@@ -53,6 +58,22 @@ const verifyFBToken = async (req, res, next) => {
     console.log("decoded in the token", decoded);
     req.decoded_email = decoded.email;
   } catch (error) {}
+  next();
+};
+
+// middle admin before allowing admin activity
+//must be  used after verify token middleware
+// data access related apis
+
+const verifyAdmin = async (req, res, next) => {
+  const email = req.decoded_email;
+  const query = { email };
+  const user = await UserCollections.findOne(query);
+  if (!user || user?.role !== "admin") {
+    return res.status(403).send({
+      message: "forbidden access",
+    });
+  }
   next();
 };
 
@@ -74,11 +95,11 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
 
-    const zapShiftDB = client.db("zapShiftDB");
-    const UserCollections = zapShiftDB.collection("users");
-    const ParcelsCollections = zapShiftDB.collection("Parcels");
-    const paymentCollections = zapShiftDB.collection("payments");
-    const ridersCollections = zapShiftDB.collection("riders");
+    zapShiftDB = client.db("zapShiftDB");
+    UserCollections = zapShiftDB.collection("users");
+    ParcelsCollections = zapShiftDB.collection("Parcels");
+    paymentCollections = zapShiftDB.collection("payments");
+    ridersCollections = zapShiftDB.collection("riders");
 
     // parcels api
 
@@ -284,7 +305,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/riders/:id", verifyFBToken, async (req, res) => {
+    app.patch("/riders/:id", verifyFBToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const status = req.body.status;
       const query = { _id: new ObjectId(id) };
@@ -331,18 +352,23 @@ async function run() {
       const user = await UserCollections.findOne(query);
       res.send({ role: user?.role || "user" });
     });
-    app.patch(`/users/:id/role`, async (req, res) => {
-      const roleinfo = req.body;
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const updateDocs = {
-        $set: {
-          role: roleinfo.role,
-        },
-      };
-      const result = await UserCollections.updateOne(query, updateDocs);
-      res.send(result);
-    });
+    app.patch(
+      `/users/:id/role`,
+      verifyFBToken,
+      verifyAdmin,
+      async (req, res) => {
+        const roleinfo = req.body;
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const updateDocs = {
+          $set: {
+            role: roleinfo.role,
+          },
+        };
+        const result = await UserCollections.updateOne(query, updateDocs);
+        res.send(result);
+      }
+    );
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
