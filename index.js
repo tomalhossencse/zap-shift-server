@@ -38,44 +38,7 @@ function generateTrackingId() {
 app.use(express.json());
 app.use(cors());
 
-let UserCollections;
-let ParcelsCollections;
-let paymentCollections;
-let ridersCollections;
-
 // verify token
-
-const verifyFBToken = async (req, res, next) => {
-  // console.log("header in the middleware", req.headers.authorization);
-  const token = req.headers.authorization;
-  if (!token) {
-    return res.status(401).send({ message: "unauthorized access" });
-  }
-
-  try {
-    const idToken = token.split(" ")[1];
-    const decoded = await admin.auth().verifyIdToken(idToken);
-    console.log("decoded in the token", decoded);
-    req.decoded_email = decoded.email;
-  } catch (error) {}
-  next();
-};
-
-// middle admin before allowing admin activity
-//must be  used after verify token middleware
-// data access related apis
-
-const verifyAdmin = async (req, res, next) => {
-  const email = req.decoded_email;
-  const query = { email };
-  const user = await UserCollections.findOne(query);
-  if (!user || user?.role !== "admin") {
-    return res.status(403).send({
-      message: "forbidden access",
-    });
-  }
-  next();
-};
 
 // mongodb
 
@@ -95,11 +58,55 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
 
-    zapShiftDB = client.db("zapShiftDB");
-    UserCollections = zapShiftDB.collection("users");
-    ParcelsCollections = zapShiftDB.collection("Parcels");
-    paymentCollections = zapShiftDB.collection("payments");
-    ridersCollections = zapShiftDB.collection("riders");
+    const zapShiftDB = client.db("zapShiftDB");
+    const UserCollections = zapShiftDB.collection("users");
+    const ParcelsCollections = zapShiftDB.collection("Parcels");
+    const paymentCollections = zapShiftDB.collection("payments");
+    const ridersCollections = zapShiftDB.collection("riders");
+    const trackingsCollections = zapShiftDB.collection("trackings");
+
+    const verifyFBToken = async (req, res, next) => {
+      // console.log("header in the middleware", req.headers.authorization);
+      const token = req.headers.authorization;
+      if (!token) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+
+      try {
+        const idToken = token.split(" ")[1];
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        console.log("decoded in the token", decoded);
+        req.decoded_email = decoded.email;
+      } catch (error) {}
+      next();
+    };
+
+    // middle admin before allowing admin activity
+    //must be  used after verify token middleware
+    // data access related apis
+
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await UserCollections.findOne(query);
+      if (!user || user?.role !== "admin") {
+        return res.status(403).send({
+          message: "forbidden access",
+        });
+      }
+      next();
+    };
+
+    const logTrackings = async (trackingId, status) => {
+      const log = {
+        trackingId,
+        status,
+        details: status.split("-").join(" "),
+        createdAt: new Date(),
+      };
+      const result = await trackingsCollections.insertOne(log);
+      return result;
+    };
 
     // parcels api
 
@@ -138,9 +145,11 @@ async function run() {
       if (riderEmail) {
         query.riderEmail = riderEmail;
       }
-      if (deliveryStatus) {
+      if (deliveryStatus !== "parcel-delivered") {
         // query.deliveryStatus = { $in: ["driver-assigned", "rider-arriving"] };
         query.deliveryStatus = { $nin: ["parcel-delivered"] };
+      } else {
+        query.deliveryStatus = deliveryStatus;
       }
 
       const result = await ParcelsCollections.find(query).toArray();
@@ -196,13 +205,27 @@ async function run() {
     });
 
     app.patch("/parcels/:id/status", async (req, res) => {
-      const { deliveryStatus } = req.body;
+      const { deliveryStatus, riderId } = req.body;
       const query = { _id: new ObjectId(req.params.id) };
       const updateDocs = {
         $set: {
           deliveryStatus: deliveryStatus,
         },
       };
+
+      if (deliveryStatus === "parcel-delivered") {
+        const riderQuery = { _id: new ObjectId(riderId) };
+        const riderUpdateDoc = {
+          $set: {
+            workStatus: "available",
+          },
+        };
+
+        const riderResult = await ridersCollections.updateOne(
+          riderQuery,
+          riderUpdateDoc
+        );
+      }
       const result = await ParcelsCollections.updateOne(query, updateDocs);
       res.send(result);
     });
@@ -291,6 +314,7 @@ async function run() {
 
         if (session.payment_status === "paid") {
           const resultPayment = await paymentCollections.insertOne(payment);
+          logTrackings(trackingId, "pending-pickup");
           return res.send({
             success: true,
             modifyParcel: result,
