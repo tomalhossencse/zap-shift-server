@@ -118,14 +118,32 @@ async function run() {
 
     app.get("/parcels", async (req, res) => {
       const query = {};
-      const { email } = req.query;
+      const { email, deliveryStatus } = req.query;
 
       if (email) {
         query.senderEmail = email;
       }
+      if (deliveryStatus) {
+        query.deliveryStatus = deliveryStatus;
+      }
 
       const options = { sort: { createdAt: -1 } };
       const result = await ParcelsCollections.find(query, options).toArray();
+      res.send(result);
+    });
+
+    app.get("/parcels/riders", async (req, res) => {
+      const { riderEmail, deliveryStatus } = req.query;
+      const query = {};
+      if (riderEmail) {
+        query.riderEmail = riderEmail;
+      }
+      if (deliveryStatus) {
+        // query.deliveryStatus = { $in: ["driver-assigned", "rider-arriving"] };
+        query.deliveryStatus = { $nin: ["parcel-delivered"] };
+      }
+
+      const result = await ParcelsCollections.find(query).toArray();
       res.send(result);
     });
 
@@ -141,6 +159,51 @@ async function run() {
       const data = req.body;
       data.createdAt = new Date();
       const result = await ParcelsCollections.insertOne(data);
+      res.send(result);
+    });
+
+    // todo : rename this to be specific like /parcels/:id/assign
+
+    app.patch("/parcels/:id", async (req, res) => {
+      const { parcelId, riderId, riderName, riderEmail } = req.body;
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const updateDocs = {
+        $set: {
+          deliveryStatus: "driver-assigned",
+          riderId: riderId,
+          riderName: riderName,
+          riderEmail: riderEmail,
+        },
+      };
+
+      const result = await ParcelsCollections.updateOne(query, updateDocs);
+      // res.send(riderResult);
+      // update rider Information
+
+      const riderQuery = { _id: new ObjectId(riderId) };
+      const riderUpdateDoc = {
+        $set: {
+          workStatus: "in-delivery",
+        },
+      };
+
+      const riderResult = await ridersCollections.updateOne(
+        riderQuery,
+        riderUpdateDoc
+      );
+      res.send(riderResult);
+    });
+
+    app.patch("/parcels/:id/status", async (req, res) => {
+      const { deliveryStatus } = req.body;
+      const query = { _id: new ObjectId(req.params.id) };
+      const updateDocs = {
+        $set: {
+          deliveryStatus: deliveryStatus,
+        },
+      };
+      const result = await ParcelsCollections.updateOne(query, updateDocs);
       res.send(result);
     });
 
@@ -208,6 +271,7 @@ async function run() {
         const update = {
           $set: {
             paymentStatus: "paid",
+            deliveryStatus: "pending-pickup",
             trackingId,
           },
         };
@@ -297,10 +361,20 @@ async function run() {
     // riders releted apis
 
     app.get("/riders", async (req, res) => {
+      const { status, warhouse, workStatus } = req.query;
       const query = {};
-      if (req.query.status) {
-        query.status = req.query.status;
+
+      if (status) {
+        query.status = status;
       }
+      if (warhouse) {
+        query.warhouse = warhouse;
+      }
+
+      if (workStatus) {
+        query.workStatus = workStatus;
+      }
+
       const result = await ridersCollections.find(query).toArray();
       res.send(result);
     });
@@ -312,6 +386,7 @@ async function run() {
       const update = {
         $set: {
           status: status,
+          workStatus: "available",
         },
       };
       const result = await ridersCollections.updateOne(query, update);
@@ -343,7 +418,10 @@ async function run() {
       const search = req.query.search;
       const query = {};
       if (search) {
-        query.displayName = { $regex: search, $options: "i" };
+        query.$or = [
+          { displayName: { $regex: search, $options: "i" } },
+          { email: { $regex: search, $options: "i" } },
+        ];
       }
       const result = await UserCollections.find(query)
         .sort({ createdAt: -1 })
