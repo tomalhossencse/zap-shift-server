@@ -174,7 +174,7 @@ async function run() {
     // todo : rename this to be specific like /parcels/:id/assign
 
     app.patch("/parcels/:id", async (req, res) => {
-      const { parcelId, riderId, riderName, riderEmail } = req.body;
+      const { parcelId, riderId, riderName, riderEmail, trackingId } = req.body;
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const updateDocs = {
@@ -201,11 +201,12 @@ async function run() {
         riderQuery,
         riderUpdateDoc
       );
+      logTrackings(trackingId, "driver-assigned");
       res.send(riderResult);
     });
 
     app.patch("/parcels/:id/status", async (req, res) => {
-      const { deliveryStatus, riderId } = req.body;
+      const { deliveryStatus, riderId, trackingId } = req.body;
       const query = { _id: new ObjectId(req.params.id) };
       const updateDocs = {
         $set: {
@@ -227,6 +228,7 @@ async function run() {
         );
       }
       const result = await ParcelsCollections.updateOne(query, updateDocs);
+      logTrackings(trackingId, deliveryStatus);
       res.send(result);
     });
 
