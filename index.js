@@ -340,7 +340,15 @@ async function run() {
     // users related api
 
     app.get("/users", async (req, res) => {
-      const result = await UserCollections.find().toArray();
+      const search = req.query.search;
+      const query = {};
+      if (search) {
+        query.displayName = { $regex: search, $options: "i" };
+      }
+      const result = await UserCollections.find(query)
+        .sort({ createdAt: -1 })
+        .limit(3)
+        .toArray();
       res.send(result);
     });
 
