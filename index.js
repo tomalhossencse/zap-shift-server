@@ -482,6 +482,14 @@ async function run() {
       }
     );
 
+    // trackings related apis
+    app.get("/trackings/:trackngId/logs", async (req, res) => {
+      const trackingId = req.params.trackngId;
+      const query = { trackingId };
+      const result = await trackingsCollections.find(query).toArray();
+      res.send(result);
+    });
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
