@@ -166,7 +166,10 @@ async function run() {
 
     app.post("/parcels", async (req, res) => {
       const data = req.body;
+      const trackingId = generateTrackingId();
+      data.trackingId = trackingId;
       data.createdAt = new Date();
+      logTrackings(trackingId, "parcel-created");
       const result = await ParcelsCollections.insertOne(data);
       res.send(result);
     });
@@ -288,7 +291,10 @@ async function run() {
         });
       }
 
-      const trackingId = generateTrackingId();
+      // const trackingId = generateTrackingId();
+
+      // use the previous tracking id created during the parcel create which was set the session metadata during session creation
+      const trackingId = session.metadata.trackingId;
 
       if (session.payment_status === "paid") {
         const id = session.metadata.parcelId;
@@ -297,7 +303,6 @@ async function run() {
           $set: {
             paymentStatus: "paid",
             deliveryStatus: "pending-pickup",
-            trackingId,
           },
         };
         const result = await ParcelsCollections.updateOne(query, update);
@@ -316,8 +321,8 @@ async function run() {
 
         if (session.payment_status === "paid") {
           const resultPayment = await paymentCollections.insertOne(payment);
-          logTrackings(trackingId, "pending-pickup");
-          return res.send({
+          logTrackings(trackingId, "parcel-paid");
+          res.send({
             success: true,
             modifyParcel: result,
             trackingId: trackingId,
@@ -327,7 +332,7 @@ async function run() {
         }
         // res.send(result);
       }
-      return res.send({ success: false });
+      res.send({ success: false });
     });
 
     // old
